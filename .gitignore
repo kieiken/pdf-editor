@@ -1,0 +1,17 @@
+# OS / エディタ一時ファイル
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ローカルツール設定（公開不要）
+.claude/
+
+# 鍵・秘密（保険。このプロジェクトでは使わない）
+*.pem
+*.key
+id_rsa*
+.env
+.env.*
+.npmrc
+.netrc

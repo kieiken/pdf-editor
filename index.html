@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 機密保護：外部への接続を遮断（自分自身のファイルのみ許可）。CDNも外部送信も不可。 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' blob: data:; worker-src 'self' blob:; child-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>PDF・Word・PowerPoint・画像 結合 / ページ編集ツール</title>
+<link rel="stylesheet" href="lib/pptxjs.css">
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --ink:#1f2430; --sub:#6b7280;
+    --line:#e3e6eb; --accent:#3b6ef5; --accent-d:#2c54c9;
+    --danger:#e5484d; --ok:#1f9d55; --shadow:0 1px 3px rgba(16,24,40,.08),0 1px 2px rgba(16,24,40,.06);
+    --radius:12px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif;
+    background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---- ヘッダー ---- */
+  header{
+    position:sticky; top:0; z-index:30; background:rgba(255,255,255,.92);
+    backdrop-filter:saturate(1.2) blur(8px); border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:16px; padding:12px 20px;
+  }
+  header .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
+  header .brand .logo{
+    width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#3b6ef5,#7a4ff5);
+    display:grid;place-items:center;color:#fff;font-size:15px;font-weight:800
+  }
+  header .count{color:var(--sub);font-size:13px;font-weight:500}
+  header .spacer{flex:1}
+  .btn{
+    font:inherit; font-size:13px; font-weight:600; cursor:pointer; border-radius:9px;
+    border:1px solid var(--line); background:#fff; color:var(--ink); padding:8px 14px;
+    display:inline-flex;align-items:center;gap:7px; transition:.12s; white-space:nowrap;
+  }
+  .btn:hover{border-color:#c8cdd6;background:#fafbfc}
+  .btn:active{transform:translateY(1px)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:var(--accent-d);border-color:var(--accent-d)}
+  .btn.primary:disabled{background:#aebbdc;border-color:#aebbdc;cursor:not-allowed}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn .ico{font-size:15px;line-height:1}
+
+  /* ---- ツールバー ---- */
+  #toolbar{
+    position:sticky; top:55px; z-index:20; background:rgba(244,245,247,.92);
+    backdrop-filter:blur(8px); border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:8px; padding:9px 20px; flex-wrap:wrap;
+  }
+  #toolbar .sel{font-size:13px;color:var(--sub);margin-right:4px;min-width:74px}
+  #toolbar .sel b{color:var(--ink)}
+  #toolbar .divider{width:1px;height:22px;background:var(--line);margin:0 4px}
+  .btn.sm{padding:6px 10px;font-size:12px}
+
+  /* ---- グリッド ---- */
+  main{padding:20px;max-width:1400px;margin:0 auto}
+  #grid{
+    display:grid; gap:16px;
+    grid-template-columns:repeat(auto-fill,minmax(168px,1fr));
+  }
+  .card{
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); overflow:hidden; position:relative; cursor:grab;
+    transition:box-shadow .15s,border-color .15s,transform .05s; user-select:none;
+  }
+  .card:hover{box-shadow:0 6px 18px rgba(16,24,40,.12);border-color:#cfd5df}
+  .card.selected{border-color:var(--accent);box-shadow:0 0 0 2px rgba(59,110,245,.25)}
+  .card.sortable-ghost{opacity:.35}
+  .card.sortable-chosen{cursor:grabbing}
+  .card .thumb{
+    background:#eef0f3; aspect-ratio:1/1.414; display:grid;place-items:center;
+    position:relative; overflow:hidden;
+  }
+  .card .thumb img{max-width:100%;max-height:100%;display:block;box-shadow:0 1px 4px rgba(0,0,0,.12)}
+  .card .thumb .ph{color:#aab1bd;font-size:12px;display:flex;flex-direction:column;align-items:center;gap:6px}
+  .spinner{width:20px;height:20px;border:2.5px solid #d7dbe2;border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .card .topbar{
+    position:absolute;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;
+    padding:7px 8px;background:linear-gradient(to bottom,rgba(0,0,0,.28),transparent);
+  }
+  .card .num{
+    background:rgba(31,36,48,.82);color:#fff;font-size:11px;font-weight:700;
+    min-width:22px;height:22px;border-radius:6px;display:grid;place-items:center;padding:0 6px
+  }
+  .chk{width:19px;height:19px;border-radius:5px;border:2px solid #fff;background:rgba(255,255,255,.25);
+    cursor:pointer;display:grid;place-items:center;flex:none;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+  .chk.on{background:var(--accent);border-color:#fff}
+  .chk.on::after{content:"✓";color:#fff;font-size:13px;font-weight:800;line-height:1}
+
+  .card .foot{padding:7px 8px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:5px}
+  .card .fname{font-size:10.5px;color:var(--sub);display:flex;align-items:center;gap:5px}
+  .card .fname .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .card .fname .pg{margin-left:auto;flex:none;color:#9aa1ad;font-size:9.5px;font-weight:600}
+  .card .fdot{width:8px;height:8px;border-radius:50%;flex:none}
+  .card .acts{display:flex;gap:4px}
+  .iconbtn{
+    flex:1;border:1px solid var(--line);background:#fff;border-radius:7px;padding:5px 0;cursor:pointer;
+    font-size:14px;line-height:1;color:#48505e;transition:.1s;display:grid;place-items:center
+  }
+  .iconbtn:hover{background:#f3f5f8;border-color:#cdd3dc;color:var(--ink)}
+  .iconbtn.del:hover{background:#fdeced;border-color:#f3b6b8;color:var(--danger)}
+
+  /* ---- 空状態 / ドロップ ---- */
+  #empty{
+    margin:24px auto;max-width:560px;text-align:center;padding:48px 28px 40px;
+    border:2px dashed #cdd3dc;border-radius:18px;background:#fff;color:var(--sub);
+  }
+  #empty .big{font-size:46px;margin-bottom:10px}
+  #empty h2{margin:.2em 0;color:var(--ink);font-size:18px}
+  #empty p{margin:.3em 0;font-size:13.5px;line-height:1.7}
+  #empty .hint{margin-top:16px;font-size:12px;color:#9aa1ad}
+  #empty .note{margin:14px auto 0;max-width:452px;font-size:11.5px;line-height:1.75;color:#8a92a0;
+    background:#f7f8fa;border:1px solid var(--line);border-radius:10px;padding:10px 14px;text-align:left}
+  #empty .note b{color:var(--ink)}
+  #empty .lock{display:inline-flex;align-items:center;gap:6px;margin-top:16px;font-size:12px;
+    color:var(--ok);background:#eafaf0;border:1px solid #bfe9cd;padding:5px 11px;border-radius:20px}
+
+  #dropOverlay{
+    position:fixed;inset:0;z-index:50;background:rgba(59,110,245,.10);backdrop-filter:blur(2px);
+    border:3px dashed var(--accent);display:none;place-items:center;pointer-events:none;margin:8px;border-radius:18px
+  }
+  #dropOverlay.on{display:grid}
+  #dropOverlay .box{background:#fff;padding:26px 38px;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.2);
+    font-size:17px;font-weight:700;color:var(--accent);display:flex;align-items:center;gap:12px}
+
+  /* ---- 処理中 ---- */
+  #busy{position:fixed;inset:0;z-index:60;background:rgba(255,255,255,.94);backdrop-filter:blur(3px);
+    display:none;place-items:center}
+  #busy.on{display:grid}
+  #busy .box{background:#fff;padding:22px 30px;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.18);
+    display:flex;flex-direction:column;align-items:center;gap:14px;min-width:220px}
+  #busy .spinner{width:32px;height:32px;border-width:3.5px}
+  #busy .msg{font-size:14px;font-weight:600}
+  #busy .sub{font-size:12px;color:var(--sub)}
+
+  /* ---- トースト ---- */
+  #toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);z-index:70;
+    background:#1f2430;color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;font-weight:500;
+    box-shadow:0 8px 28px rgba(0,0,0,.28);opacity:0;transition:.25s;pointer-events:none;max-width:80vw}
+  #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+  #toast.err{background:#7a1d20}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><span class="logo">📄</span><span>PDF・Word・PowerPoint・画像 結合 / 編集</span></div>
+  <span class="count" id="count">ページなし</span>
+  <span class="spacer"></span>
+  <button class="btn" id="addBtn"><span class="ico">＋</span>ファイルを追加</button>
+  <button class="btn primary" id="exportBtn" disabled><span class="ico">⬇</span>PDFを書き出す</button>
+</header>
+
+<div id="toolbar">
+  <span class="sel" id="selInfo">選択 <b>0</b> 枚</span>
+  <button class="btn sm" id="selAll">全選択</button>
+  <button class="btn sm" id="selNone" disabled>選択解除</button>
+  <span class="divider"></span>
+  <button class="btn sm" id="rotL" disabled title="選択ページを左90°回転"><span class="ico">↺</span>左回転</button>
+  <button class="btn sm" id="rotR" disabled title="選択ページを右90°回転"><span class="ico">↻</span>右回転</button>
+  <button class="btn sm" id="dupSel" disabled title="選択ページを複製"><span class="ico">⧉</span>複製</button>
+  <button class="btn sm" id="delSel" disabled title="選択ページを削除"><span class="ico">🗑</span>削除</button>
+  <span class="spacer" style="flex:1"></span>
+  <button class="btn sm" id="clearAll" disabled title="すべて消去">全消去</button>
+</div>
+
+<main>
+  <div id="empty">
+    <div class="big">📄⇄📑</div>
+    <h2>PDF・Word・PowerPoint・画像 をここにドラッグ＆ドロップ</h2>
+    <p>複数の PDF・Word（.docx）・PowerPoint（.pptx）・画像をまとめて読み込み、<br>ページを<b>並べ替え・回転・削除</b>して 1 つの PDF に書き出せます。</p>
+    <button class="btn primary" id="addBtn2" style="margin-top:6px"><span class="ico">＋</span>ファイルを選ぶ</button>
+    <div class="hint">対応：PDF / Word（.docx） / PowerPoint（.pptx） / 画像（.png .jpg .jpeg .webp .gif .bmp .svg）</div>
+    <div class="note">💡 <b>Word・PowerPoint は簡易変換</b>です。文字・見出し・段落・図形は再現しますが、複雑な表組みや画像配置は崩れる場合があります。<b>PowerPoint</b> はアニメーションや画面切替効果は再現されず、グラフは崩れることがあります。<b>音声・動画は PDF に含めず自動で除外</b>します（旧形式 .ppt は非対応）。レイアウトを正確に残したい場合は、元のアプリで <b>PDF 保存してから</b>読み込むと確実です。</div>
+    <div class="lock">🔒 ファイルは外部に送信されません。すべてこの端末の中だけで処理します。</div>
+  </div>
+  <div id="grid"></div>
+</main>
+
+<div id="dropOverlay"><div class="box"><span style="font-size:22px">📥</span>ドロップして読み込み</div></div>
+<div id="busy"><div class="box"><div class="spinner"></div><div class="msg" id="busyMsg">処理中…</div><div class="sub" id="busySub"></div></div></div>
+<div id="toast"></div>
+<input type="file" id="fileInput" accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg" multiple hidden>
+
+<!-- 必須ライブラリのみ先読み。Word/PowerPoint 用（mammoth / html2canvas / jQuery / PPTXjs ほか）は
+     該当ファイルが追加された時に app.js が動的に読み込む（初回表示の軽量化）。 -->
+<script src="lib/pdf-lib.min.js"></script>
+<script src="lib/pdf.min.js"></script>
+<script src="lib/Sortable.min.js"></script>
+<script src="app.js?v=4"></script>
+</body>
+</html>
